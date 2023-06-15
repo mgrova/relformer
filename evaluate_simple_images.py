@@ -240,8 +240,6 @@ if __name__ == "__main__":
 
             # print("Ref position: {}".format(ref_pose_array[:, 0:3]))
             # print("Query position: {}".format(query_pose_array[:, 0:3]))
-            # -0.676369,-0.483227,-0.283797, 0.983233,-0.119596,0.137594,-0.001085,
-            # -0.639805,-0.486118,0.283723,  0.984424,-0.057558,0.131943,0.100681
 
             ref_seq   = 1
             ref_index = 0
@@ -253,9 +251,7 @@ if __name__ == "__main__":
             query_index = 452
             query_path  = args.dataset_path + "pumpkin/seq-" + str(query_seq).zfill(2) + "/frame-" + str(query_index).zfill(6)
             query_img_own = transform(imread(query_path + ".color.png")).to(device)
-            query_pose = read_extrinsic_mat_from_file(query_path + ".pose.txt")            
-
-            gt_rel_pose = compute_rel_pose(ref_pose, query_pose)
+            query_pose = read_extrinsic_mat_from_file(query_path + ".pose.txt")
 
             # Expand dimension (similar to unqueeze)
             query_img_own = query_img_own[None, :]
@@ -278,16 +274,15 @@ if __name__ == "__main__":
             tn = time.time()
 
             pred_rel_pose = convert_to_quat(rot_repr_type, est_rel_pose)
-            print(pred_rel_pose.shape)
-            print(gt_rel_pose.shape)
-            posit_err, orient_err = utils.pose_err(est_rel_pose, torch.tensor(gt_rel_pose).to(device))
-
+            gt_rel_pose = compute_rel_pose(ref_pose, query_pose)
+            gt_rel_pose_tensor = torch.tensor(gt_rel_pose).to(device, dtype=torch.float32)
             
-            pred_rel_position = pred_rel_pose[:, 0:3].detach().cpu().numpy()
-            print("Predicted relative position: {}".format(pred_rel_position))
-            pred_rel_q = pred_rel_pose[:, 3:].detach().cpu().numpy()
-            print("Predicted relative orientation: {}".format(pred_rel_q))
+            posit_err, orient_err = utils.pose_err(est_rel_pose, gt_rel_pose_tensor)
 
+            # pred_rel_position = pred_rel_pose[:, 0:3].detach().cpu().numpy()
+            # print("Predicted relative position: {}".format(pred_rel_position))
+            # pred_rel_q = pred_rel_pose[:, 3:].detach().cpu().numpy()
+            # print("Predicted relative orientation: {}".format(pred_rel_q))
 
             # Collect statistics
             pose_stats[i, 0] = posit_err.item()
