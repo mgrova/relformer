@@ -18,7 +18,7 @@ import sys
 import torch
 import pandas as pd
 import torchvision
-from PIL import Image
+from PIL import Image, ImageDraw
 from skimage.io import imread
 import transforms3d as t3d
 
@@ -45,8 +45,14 @@ def convert_to_quat(rot_repr_type, est_rel_poses):
 
 def get_concat_h(im1, im2):
     dst = Image.new('RGB', (im1.width + im2.width, im1.height))
+
     dst.paste(im1, (0, 0))
     dst.paste(im2, (im1.width, 0))
+
+    draw = ImageDraw.Draw(dst)
+    draw.text((0, 0),"Ref Img",(0, 0, 255))
+    draw.text((im1.width, 0), "Query Img",(0, 0, 255))
+
     return dst
 
 def read_extrinsic_mat_from_file(file):
@@ -77,24 +83,73 @@ def read_extrinsic_mat_from_file(file):
 
     return result_array
 
-def compute_rel_pose(pose_ref, pose_query):
-    t1 = pose_ref[:3]
-    q1 = pose_ref[3:]
+def compute_rel_pose(p1, p2):
+    t1 = p1[:3]
+    q1 = p1[3:]
     rot1 = t3d.quaternions.quat2mat(q1 / np.linalg.norm(q1))
 
-    t2 = pose_query[:3]
-    q2 = pose_query[3:]
+    t2 = p2[:3]
+    q2 = p2[3:]
     rot2 = t3d.quaternions.quat2mat(q2 / np.linalg.norm(q2))
 
     t_rel = t2 - t1
     rot_rel = np.dot(np.linalg.inv(rot1), rot2)
     q_rel = t3d.quaternions.mat2quat(rot_rel)
     rel_pose = np.zeros((1, 7))
-    rel_pose[i, :3]  = t_rel
-    rel_pose[i, 3:] = q_rel
+    rel_pose[0, :3]  = t_rel
+    rel_pose[0, 3:] = q_rel
     return rel_pose
 
-if __name__ == "__main__":
+def create_custom_batch(dataset_path, img_transform, ref_seq, ref_index, query_seq, query_index):
+
+    ref_seq   = 1
+    ref_index = 0
+    ref_path  = dataset_path + "pumpkin/seq-" + str(ref_seq).zfill(2) + "/frame-" + str(ref_index).zfill(6)
+    ref_img_own = img_transform(imread(ref_path + ".color.png"))
+
+    query_seq   = 8
+    query_index = 452
+    query_path  = dataset_path + "pumpkin/seq-" + str(query_seq).zfill(2) + "/frame-" + str(query_index).zfill(6)
+    query_img_own = img_transform(imread(query_path + ".color.png"))
+
+    # Expand dimension (similar to unqueeze)
+    query_img_own = query_img_own[None, :]
+    ref_img_own   = ref_img_own[None, :]
+
+    ref_pose   = read_extrinsic_mat_from_file(ref_path + ".pose.txt")
+    query_pose = read_extrinsic_mat_from_file(query_path + ".pose.txt")
+    rel_pose   = compute_rel_pose(query_pose, ref_pose)
+
+    custom_batch = {'query': query_img_own,
+                    'query_pose': [query_pose],
+                    'ref': ref_img_own,
+                    'ref_pose': [ref_pose],
+                    'rel_pose': rel_pose}
+    
+    return custom_batch
+
+def visualize_batch(batch):
+    trans_to_pil = torchvision.transforms.ToPILImage(mode='RGB')
+    out_query = trans_to_pil(batch.get('query')[0])
+    out_ref = trans_to_pil(batch.get('ref')[0])
+    get_concat_h(out_ref, out_query).show()
+
+    ref_pose_array = batch['ref_pose'].to(dtype=torch.float32).detach().cpu().numpy()
+    ref_position   = ref_pose_array[0][0:3]
+    ref_q          = ref_pose_array[0][3:]
+    logging.info("Reference   -> Pos: {} Quat: {}".format(ref_position, ref_q))
+
+    query_pose_array = batch['query_pose'].to(dtype=torch.float32).detach().cpu().numpy()
+    query_position   = query_pose_array[0][0:3]
+    query_q          = query_pose_array[0][3:]
+    logging.info("Query       -> Pos: {} Quat: {}".format(query_position, query_q))
+
+    rel_pose_array = batch['rel_pose'].to(dtype=torch.float32).detach().cpu().numpy()
+    rel_position   = rel_pose_array[0][0:3]
+    rel_q          = rel_pose_array[0][3:]
+    logging.info("GT Relative -> Pos: {} Quat: {}".format(rel_position, rel_q))
+
+def main():
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("--mode", help="train or eval", default='train')
     arg_parser.add_argument("--dataset_path", help="path to the physical location of the dataset", default="/nfstemp/Datasets/7Scenes/")
@@ -203,8 +258,6 @@ if __name__ == "__main__":
         model.load_state_dict(torch.load(args.checkpoint_path, map_location=device_id), strict=False)
         logging.info("Initializing from checkpoint: {}".format(args.checkpoint_path))
 
-    eval_reductions = config.get("reduction_eval")
-    train_reductions = config.get("reduction")
     if args.mode == 'train':
         print("Invalid mode")
         exit(0)
@@ -226,70 +279,45 @@ if __name__ == "__main__":
                          'num_workers': config.get('n_workers')}
         dataloader = torch.utils.data.DataLoader(test_dataset, **loader_params)
         pose_stats = np.zeros((len(dataloader.dataset), 3))
+
+        use_custom_batch = False
+
         with torch.no_grad():
-            i = 0
-            minibatch = next(iter(dataloader))
-
-            for k, v in minibatch.items():
-                minibatch[k] = v.to(device)
-
-            # ref_pose_array   = minibatch['ref_pose'].to(dtype=torch.float32).detach()
-            # query_pose_array = minibatch['query_pose'].to(device).to(dtype=torch.float32).detach()
-            # query_img = minibatch.get('query')
-            # ref_img = minibatch.get('ref')
-
-            # print("Ref position: {}".format(ref_pose_array[:, 0:3]))
-            # print("Query position: {}".format(query_pose_array[:, 0:3]))
-
-            ref_seq   = 1
-            ref_index = 0
-            ref_path  = args.dataset_path + "pumpkin/seq-" + str(ref_seq).zfill(2) + "/frame-" + str(ref_index).zfill(6)
-            ref_img_own = transform(imread(ref_path + ".color.png")).to(device)
-            ref_pose = read_extrinsic_mat_from_file(ref_path + ".pose.txt")
-
-            query_seq   = 8
-            query_index = 452
-            query_path  = args.dataset_path + "pumpkin/seq-" + str(query_seq).zfill(2) + "/frame-" + str(query_index).zfill(6)
-            query_img_own = transform(imread(query_path + ".color.png")).to(device)
-            query_pose = read_extrinsic_mat_from_file(query_path + ".pose.txt")
-
-            # Expand dimension (similar to unqueeze)
-            query_img_own = query_img_own[None, :]
-            ref_img_own   = ref_img_own[None, :]
-
-            custom_batch = {'query': query_img_own,
-                            'ref': ref_img_own}
+            if use_custom_batch:
+                current_batch = create_custom_batch(dataset_path=args.dataset_path, img_transform=transform, 
+                                                    ref_seq   = 1, ref_index = 0, 
+                                                    query_seq = 8, query_index = 452)
+            else:
+                minibatch = next(iter(dataloader))
+                current_batch = minibatch
             
-            # Visualize images
-            trans_to_pil = torchvision.transforms.ToPILImage(mode='RGB')
-            out_query = trans_to_pil(custom_batch.get('query')[0])
-            out_ref = trans_to_pil(custom_batch.get('ref')[0])
-            get_concat_h(out_query, out_ref).show()
+            # Move tensors to GPU
+            for k, v in current_batch.items():
+                current_batch[k] = torch.tensor(v).to(device)
+
+            visualize_batch(current_batch)
             
             # Forward pass to predict the initial pose guess
             t0 = time.time()
-            res = model(custom_batch)
+            res = model(current_batch)
             est_rel_pose = res['rel_pose']
             torch.cuda.synchronize()
             tn = time.time()
 
-            pred_rel_pose = convert_to_quat(rot_repr_type, est_rel_pose)
-            gt_rel_pose = compute_rel_pose(ref_pose, query_pose)
-            gt_rel_pose_tensor = torch.tensor(gt_rel_pose).to(device, dtype=torch.float32)
-            
-            posit_err, orient_err = utils.pose_err(est_rel_pose, gt_rel_pose_tensor)
-
-            # pred_rel_position = pred_rel_pose[:, 0:3].detach().cpu().numpy()
-            # print("Predicted relative position: {}".format(pred_rel_position))
-            # pred_rel_q = pred_rel_pose[:, 3:].detach().cpu().numpy()
-            # print("Predicted relative orientation: {}".format(pred_rel_q))
+            # Evaluate prediction
+            gt_rel_pose = current_batch.get('rel_pose')
+            posit_err, orient_err = utils.pose_err(est_rel_pose, gt_rel_pose.type(torch.float32))
 
             # Collect statistics
-            pose_stats[i, 0] = posit_err.item()
-            pose_stats[i, 1] = orient_err.item()
-            pose_stats[i, 2] = (tn - t0)*1000
+            pose_stats[0, 0] = posit_err.item()
+            pose_stats[0, 1] = orient_err.item()
+            pose_stats[0, 2] = (tn - t0)*1000
 
             msg = "Pose error: {:.3f}[m], {:.3f}[deg], inferred in {:.2f}[ms]".format(
-                pose_stats[i, 0],  pose_stats[i, 1],  pose_stats[i, 2])
+                pose_stats[0, 0],  pose_stats[0, 1],  pose_stats[0, 2])
 
             logging.info(msg)
+
+
+if __name__ == "__main__":
+    main()
