@@ -18,6 +18,10 @@ import sys
 import torch
 import pandas as pd
 
+# Ignore warnings
+import warnings
+warnings.filterwarnings("ignore")
+
 
 def get_knn_indices(query, db):
     distances = torch.linalg.norm(db-query, axis=1)
