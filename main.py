@@ -9,6 +9,7 @@ import logging
 from util import utils
 import time
 from datasets.RelPoseDataset import RelPoseDataset
+from datasets.UnrealCustomRelPoseDataset import UnrealCustomRelPoseDataset
 from datasets.KNNCameraPoseDataset import KNNCameraPoseDataset
 from models.pose_losses import CameraPoseLoss
 from os.path import join
@@ -172,10 +173,14 @@ if __name__ == "__main__":
                                                     gamma=config.get('lr_scheduler_gamma'))
 
         transform = utils.train_transforms.get('baseline')
-        if args.is_knn:
-            train_dataset = KNNCameraPoseDataset(args.dataset_path, args.labels_file, args.refs_file, args.knn_file, transform, args.knn_len)
+        use_custom_dataset = True
+        if use_custom_dataset:
+            train_dataset = UnrealCustomRelPoseDataset(args.dataset_path, transform)
         else:
-            train_dataset = RelPoseDataset(args.dataset_path, args.labels_file, transform)
+            if args.is_knn:
+                train_dataset = KNNCameraPoseDataset(args.dataset_path, args.labels_file, args.refs_file, args.knn_file, transform, args.knn_len)
+            else:
+                train_dataset = RelPoseDataset(args.dataset_path, args.labels_file, transform)
 
         loader_params = {'batch_size': config.get('batch_size'),
                                   'shuffle': True,
