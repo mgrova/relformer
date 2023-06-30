@@ -18,6 +18,7 @@ from models.DeltaNet import DeltaNet, BaselineRPR, DeltaNetEquiv, TDeltaNet, MSD
 import sys
 import torch
 import pandas as pd
+from tensorboardX import SummaryWriter
 
 # Ignore warnings
 import warnings
@@ -71,6 +72,8 @@ if __name__ == "__main__":
         '\n'.join(["\t{}: {}".format(k, v) for k, v in config.items()])))
     logging.info("Running with command line params:\n{}".format(
         "{}".format(' '.join(sys.argv[:]))))
+    
+    summary = SummaryWriter()
 
     # Set the seeds and the device
     use_cuda = torch.cuda.is_available()
@@ -265,14 +268,21 @@ if __name__ == "__main__":
                         q = utils.compute_quaternions_from_rotation_matrices(rot_repr)
                         est_rel_poses = torch.cat((est_rel_poses[:,:3], q), dim=1)
 
+                    summary.add_scalar(tag='Loss', scalar_value=running_loss)
+
                     posit_err, orient_err = utils.pose_err(est_rel_poses.detach(), gt_rel_poses_orig.detach())
                     msg = "[Batch-{}/Epoch-{}] running relative camera pose loss: {:.3f}, camera pose error: {:.2f}[m], {:.2f}[deg]".format(
                                                                         batch_idx+1, epoch+1, (running_loss/n_freq_print),
                                                                         posit_err.mean().item(),
                                                                         orient_err.mean().item())
+                    summary.add_scalar(tag='Position Error Relative',    scalar_value=posit_err.mean().item())
+                    summary.add_scalar(tag='Orientation Error Relative', scalar_value=orient_err.mean().item())
                     posit_err, orient_err = utils.pose_err(neighbor_poses.detach(), minibatch['query_pose'].to(dtype=torch.float32).detach())
                     msg = msg + ", distance from neighbor images: {:.2f}[m], {:.2f}[deg]".format(posit_err.mean().item(),
-                                                                         orient_err.mean().item())
+                                                                                                 orient_err.mean().item())
+                    summary.add_scalar(tag='Position Error Neighbor',    scalar_value=posit_err.mean().item())
+                    summary.add_scalar(tag='Orientation Error Neighbor', scalar_value=orient_err.mean().item())
+                    
                     logging.info(msg)
                     # Resetting temporal loss used for logging
                     running_loss = 0.0
@@ -349,7 +359,7 @@ if __name__ == "__main__":
                 msg = msg + ", distance from neighbor images: {:.2f}[m], {:.2f}[deg]".format(posit_err.mean().item(),
                                                                                              orient_err.mean().item())
                 logging.info(msg)
-
+    
         # Record overall statistics
         logging.info("Performance of {} on {}".format(args.checkpoint_path, args.labels_file))
         logging.info("Median pose error: {:.3f}[m], {:.3f}[deg]".format(np.nanmedian(pose_stats[:, 0]), np.nanmedian(pose_stats[:, 1])))
