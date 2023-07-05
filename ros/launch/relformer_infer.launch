@@ -1,0 +1,34 @@
+<launch>
+
+  <arg name="config_file" default="/home/aiiacvmllab/Projects/metric_learning_repos/relformer/config/custom_config/custom_config_relformer_mod.json" />
+  <arg name="gpu" default="0" />
+  <arg name="checkpoint" default="/home/aiiacvmllab/Projects/metric_learning_repos/relformer/out/run_30_06_23_16_31_56_relformer_final.pth" />
+  <arg name="rpr_backbone_path" default="/home/aiiacvmllab/Projects/metric_learning_repos/relformer/models/backbones/efficient-net-b0.pth" />
+
+  <arg name="query_image_path"  default="/home/aiiacvmllab/Documents/datasets/LookOut_UE4/train/dataset_2023-06-19_11:59:18/rgb/rgb_0000.png" />
+  <arg name="query_image_topic" default="query_image" />
+
+  <arg name="ref_image_path"  default="/home/aiiacvmllab/Documents/datasets/LookOut_UE4/train/dataset_2023-06-19_12:04:14/rgb/rgb_0000.png" />
+  <arg name="ref_image_topic" default="ref_image" />
+
+  <!-- Node to publish start image and desired poses into syncronized ROS messages from files -->
+  <node pkg="relformer_transformer" name="images_pub_node"  type="images_pub_node.py" output="screen" >
+    <param name="query_image_path"  value="$(arg query_image_path)" />
+    <param name="query_image_topic" value="$(arg query_image_topic)" />
+
+    <param name="ref_image_path"  value="$(arg ref_image_path)" />
+    <param name="ref_image_topic" value="$(arg ref_image_topic)" />
+  </node>
+
+  <!-- Relformer model inference node -->
+  <node pkg="relformer_transformer" name="relformer_infer_node"  type="relformer_infer_node.py" output="screen" >
+    <param name="config_file"       value="$(arg config_file)" />
+    <param name="gpu"               value="$(arg gpu)" />
+    <param name="checkpoint"        value="$(arg checkpoint)" />
+    <param name="rpr_backbone_path" value="$(arg rpr_backbone_path)" />
+    <param name="query_image_topic" value="$(arg query_image_topic)" />
+    <param name="ref_image_topic"   value="$(arg ref_image_topic)" />
+
+  </node>
+
+</launch>
