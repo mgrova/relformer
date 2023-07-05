@@ -7,6 +7,9 @@ from sensor_msgs.msg import Image
 from message_filters import Subscriber, ApproximateTimeSynchronizer
 import json
 
+import sys
+sys.path.append("/home/aiiacvmllab/Projects/metric_learning_repos/relformer")
+
 from models.relformer.RelFormer import RelFormer, RelFormer2, BrRwlFormer
 from models.DeltaNet import DeltaNet, BaselineRPR, DeltaNetEquiv, TDeltaNet, MSDeltaNet
 
@@ -16,6 +19,9 @@ import numpy as np
 import time
 from util import utils
 
+# Ignore warnings
+import warnings
+warnings.filterwarnings("ignore")
 
 class RelformerTransformer():
     def __init__(self, node_name):
@@ -30,8 +36,6 @@ class RelformerTransformer():
         ref_image_topic   = rospy.get_param('~ref_image_topic', default="ref_image")
 
         # TODO. Define output format
-
-        os.environ["CUDA_VISIBLE_DEVICES"] = gpu
 
         # Read configuration
         with open(config_file, "r") as read_file:
@@ -48,7 +52,7 @@ class RelformerTransformer():
         if use_cuda:
             torch.backends.cudnn.fdeterministic = True
             torch.backends.cudnn.benchmark = False
-            self.device_id = 'cuda:' + gpu
+            self.device_id = 'cuda:' + str(gpu)
         np.random.seed(numpy_seed)
         self.device = torch.device(self.device_id)
 
@@ -64,8 +68,6 @@ class RelformerTransformer():
 
         # Setup publishers and subscribers
         self.__bridge = CvBridge()
-        self.__inference_pub = rospy.Publisher(inference_image_topic, Image, queue_size=1, latch=True)
-
         self.__query_image_sub = Subscriber(query_image_topic, Image)
         self.__ref_image_sub   = Subscriber(ref_image_topic, Image)
 
@@ -172,7 +174,8 @@ class RelformerTransformer():
         with torch.no_grad():
             # Move tensors to GPU
             for k, v in batch.items():
-                batch[k] = torch.tensor(v).to(self.device)
+                if v is not None:
+                    batch[k] = torch.tensor(v).to(self.device)
 
             # Forward pass to predict the initial pose guess
             t0 = time.time()
@@ -181,8 +184,8 @@ class RelformerTransformer():
             torch.cuda.synchronize()
             tn = time.time()
 
-            est_rel_position = est_rel_pose[:, 0:3]
-            est_rel_ori = est_rel_pose[:, 3:]
+            est_rel_position = est_rel_pose[0][0:3]
+            est_rel_ori = est_rel_pose[0][3:]
 
             rospy.loginfo("Estimate relative position: ({:.3f}, {:.3f}, {:.3f}) and orientation: ({:.3f}, {:.3f}, {:.3f}, {:.3f}) inferred in {:.2f}[ms]"
                           .format(est_rel_position[0], est_rel_position[1], est_rel_position[2],
