@@ -203,7 +203,8 @@ if __name__ == "__main__":
         # Resetting temporal loss used for logging
         running_loss = 0.0
         n_samples = 0
-
+        
+        global_idx = 0
         for epoch in range(n_epochs):
             for batch_idx, minibatch in enumerate(dataloader):
                 for k, v in minibatch.items():
@@ -268,26 +269,27 @@ if __name__ == "__main__":
                         q = utils.compute_quaternions_from_rotation_matrices(rot_repr)
                         est_rel_poses = torch.cat((est_rel_poses[:,:3], q), dim=1)
 
-                    summary.add_scalar(tag='Loss', scalar_value=running_loss)
+                    summary.add_scalar(tag='Loss', scalar_value=running_loss, global_step=global_idx)
 
                     posit_err, orient_err = utils.pose_err(est_rel_poses.detach(), gt_rel_poses_orig.detach())
                     msg = "[Batch-{}/Epoch-{}] running relative camera pose loss: {:.3f}, camera pose error: {:.2f}[m], {:.2f}[deg]".format(
                                                                         batch_idx+1, epoch+1, (running_loss/n_freq_print),
                                                                         posit_err.mean().item(),
                                                                         orient_err.mean().item())
-                    summary.add_scalar(tag='Position Error Relative',    scalar_value=posit_err.mean().item())
-                    summary.add_scalar(tag='Orientation Error Relative', scalar_value=orient_err.mean().item())
+                    summary.add_scalar(tag='Position Error Relative',    scalar_value=posit_err.mean().item(), global_step=global_idx)
+                    summary.add_scalar(tag='Orientation Error Relative', scalar_value=orient_err.mean().item(), global_step=global_idx)
                     posit_err, orient_err = utils.pose_err(neighbor_poses.detach(), minibatch['query_pose'].to(dtype=torch.float32).detach())
                     msg = msg + ", distance from neighbor images: {:.2f}[m], {:.2f}[deg]".format(posit_err.mean().item(),
                                                                                                  orient_err.mean().item())
-                    summary.add_scalar(tag='Position Error Neighbor',    scalar_value=posit_err.mean().item())
-                    summary.add_scalar(tag='Orientation Error Neighbor', scalar_value=orient_err.mean().item())
+                    summary.add_scalar(tag='Position Error Neighbor',    scalar_value=posit_err.mean().item(), global_step=global_idx)
+                    summary.add_scalar(tag='Orientation Error Neighbor', scalar_value=orient_err.mean().item(), global_step=global_idx)
                     
                     logging.info(msg)
                     # Resetting temporal loss used for logging
                     running_loss = 0.0
                     n_samples = 0
 
+                global_idx = global_idx + 1
             # Save checkpoint3n
             if (epoch % n_freq_checkpoint) == 0 and epoch > 0:
                 torch.save(model.state_dict(), checkpoint_prefix + '_relformer_checkpoint-{}.pth'.format(epoch))
