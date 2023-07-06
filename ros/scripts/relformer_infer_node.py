@@ -3,20 +3,21 @@
 import rospy
 from cv_bridge import CvBridge
 from sensor_msgs.msg import Image
-
 from message_filters import Subscriber, ApproximateTimeSynchronizer
+
 import json
-
-import sys
-sys.path.append("/home/aiiacvmllab/Projects/metric_learning_repos/relformer")
-
-from models.relformer.RelFormer import RelFormer, RelFormer2, BrRwlFormer
-from models.DeltaNet import DeltaNet, BaselineRPR, DeltaNetEquiv, TDeltaNet, MSDeltaNet
-
 import os
 import torch
 import numpy as np
 import time
+import sys
+
+uppath = lambda _path, n: os.sep.join(_path.split(os.sep)[:-n])
+sys.path.append(uppath(__file__, 3))
+
+from models.relformer.RelFormer import RelFormer, RelFormer2, BrRwlFormer
+from models.DeltaNet import DeltaNet, BaselineRPR, DeltaNetEquiv, TDeltaNet, MSDeltaNet
+
 from util import utils
 
 # Ignore warnings
